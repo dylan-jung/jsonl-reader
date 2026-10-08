@@ -8,6 +8,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     let textView = NSTextView()
     let sampleRecords = 1000
     let fullCountLimit = 1 << 30   // ponytail: count every line up to 1GB (~1s); above that estimate from the sample
+    let parseMax = 16 << 20         // Quick Look never parses a record bigger than this
 
     override func loadView() {
         let sv = NSScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
@@ -24,15 +25,16 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         do {
             let f = try JSONLFile(url: url)
             let full = f.data.count <= fullCountLimit
-            f.index(maxLines: full ? .max : sampleRecords)
-            let sampled = min(f.lineCount, sampleRecords)
-            let total = full ? f.lineCount : (sampled > 0 ? Int(Double(f.data.count) / (Double(f.lineStarts[sampled - 1]) / Double(max(sampled - 1, 1)))) : 0)
+            f.index(maxRecords: full ? .max : sampleRecords)
+            let sampled = min(f.count, sampleRecords)
+            let perRecord = sampled > 1 ? Double(f.range(of: sampled - 1).lowerBound) / Double(sampled - 1) : 0
+            let total = full || perRecord == 0 ? f.count : Int(Double(f.data.count) / perRecord)
 
             // keys over the sample: name → (type of first non-null value, records containing it)
             var keys: [String: (type: String, count: Int)] = [:]
             var objects = 0
             for i in 0..<sampled {
-                guard let d = f.parsed(i) as? [String: Any] else { continue }
+                guard let d = f.parsed(i, maxBytes: parseMax) as? [String: Any] else { continue }
                 objects += 1
                 for (k, v) in d {
                     var e = keys[k] ?? (type: "null", count: 0)
@@ -50,11 +52,11 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) } ?? ""
             let fmt = NumberFormatter(); fmt.numberStyle = .decimal
             var head = "\(url.lastPathComponent)  ·  \(size)  ·  \(full ? "" : "~")\(fmt.string(from: total as NSNumber)!) records"
-            if full, !f.badLines.isEmpty { head += "  ·  \(f.badLines.count) invalid" }
+            if full, f.badCount > 0 { head += "  ·  \(f.badCount) invalid" }
             line(head, .labelColor, bold: true)
             line("")
 
-            line("Keys (\(keys.count))" + (objects < sampled ? "  ·  \(sampled - objects) of the first \(sampled) records are not objects" : "") + (full && sampled < f.lineCount ? "  ·  from the first \(sampled) records" : ""), .secondaryLabelColor, bold: true)
+            line("Keys (\(keys.count))" + (objects < sampled ? "  ·  \(sampled - objects) of the first \(sampled) records are not objects" : "") + (full && sampled < f.count ? "  ·  from the first \(sampled) records" : ""), .secondaryLabelColor, bold: true)
             let w = keys.keys.map(\.count).max() ?? 0
             for k in keys.keys.sorted() {
                 let e = keys[k]!
@@ -67,8 +69,10 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
             line("")
 
             line("Sample [0]", .secondaryLabelColor, bold: true)
-            if f.lineCount == 0 { line("  (empty file)", .secondaryLabelColor) }
-            else if let v = f.parsed(0) { out.append(highlightedJSON(prettyJSON(v, rendered: false), font: mono)) }
+            let r0 = f.count > 0 ? f.valueRange(f.range(of: 0)) : 0..<0
+            if f.count == 0 { line("  (empty file)", .secondaryLabelColor) }
+            else if r0.count > parseMax { line("  (\(ByteCountFormatter.string(fromByteCount: Int64(r0.count), countStyle: .file)) record, too large to preview)", .secondaryLabelColor) }
+            else if let v = f.parse(r0) { out.append(highlightedJSON(prettyJSON(v, rendered: false, limit: 1 << 20), font: mono)) }
             else { line("⚠ invalid JSON: " + f.preview(0, max: 2000), .systemRed) }
 
             textView.textStorage?.setAttributedString(out)

@@ -2,11 +2,11 @@
 
 A fast, offline, native macOS viewer for `.jsonl` / `.ndjson` / `.json` files — built for data scientists who need to eyeball multi-GB datasets without waiting.
 
-- Opens a 1 GB file in ~1 s. The file is memory-mapped; only newline offsets live in RAM.
-- One record per row on the left, pretty-printed (or raw) JSON on the right.
+- The file is memory-mapped and indexed in the background; the list fills in as indexing goes. The index keeps one offset per 64 KB of file, so even a 500 GB file needs ~120 MB of RAM.
+- One record per row on the left (an NSTableView, so billions of rows scroll like twenty), the selected record's tree in the middle, pretty-printed JSON in the detail pane.
 - Broken lines are flagged ⚠ and counted, never silently skipped.
-- Search (`⌘F`, Enter), go-to-line, copy (`⇧⌘C`), Pretty/Raw toggle.
-- `.json` files: a top-level array shows one row per element; anything else is a single record.
+- Search (`⌘F`, Enter) scans the mapped bytes on all cores; a new search cancels the running one. Go-to-record, copy.
+- `.json` files: a top-level array shows one row per element; an object is one record, or one row per member when the file is over 256 MB. Records are found by walking bytes, never by parsing the whole file. Records over 256 MB are shown as raw text, not parsed.
 - Quick Look: press Space on a `.jsonl` / `.ndjson` / `.json` file in Finder to see the record count, the keys with their types, and record [0] pretty-printed.
 - Zero dependencies. Swift + SwiftUI. macOS 14+.
 
@@ -31,7 +31,7 @@ swift build -c release && .build/release/JSONLReader --bench big.jsonl   # index
 
 ```
 Sources/JSONLCore/       mmap'd file + line index, JSON node tree, one-line record preview
-Sources/JSONLReader/     the app (SwiftUI shell, NSOutlineView tree, detail pane)
+Sources/JSONLReader/     the app (SwiftUI shell, NSTableView record list, NSOutlineView tree, detail pane)
 Sources/JSONLQuickLook/  Quick Look preview extension
 Resources/               app icon (make-icon.swift regenerates AppIcon.icns), entitlements
 install.sh               build → .app + .appex → sign → install → register defaults
@@ -39,4 +39,4 @@ install.sh               build → .app + .appex → sign → install → regist
 
 ## Not yet
 
-Tree view, jq filter, table view, `.gz`, editing. See `PRD.md`.
+jq filter, table view, `.gz`, editing. See `PRD.md`.

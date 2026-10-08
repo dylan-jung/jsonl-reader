@@ -2,20 +2,38 @@ import AppKit
 
 /// Pretty-printer over the parsed tree (sorted keys, 2-space indent, same shape as JSONSerialization).
 /// rendered=true prints string contents as real characters (newlines, tabs, unicode…) — only `"` and `\` stay escaped.
-public func prettyJSON(_ v: Any, rendered: Bool, indent: String = "") -> String {
-    let inner = indent + "  "
-    switch v {
-    case let d as [String: Any]:
-        if d.isEmpty { return "{}" }
-        return "{\n" + d.keys.sorted().map { inner + quote($0, rendered: false) + " : " + prettyJSON(d[$0]!, rendered: rendered, indent: inner) }.joined(separator: ",\n") + "\n" + indent + "}"
-    case let a as [Any]:
-        if a.isEmpty { return "[]" }
-        return "[\n" + a.map { inner + prettyJSON($0, rendered: rendered, indent: inner) }.joined(separator: ",\n") + "\n" + indent + "]"
-    case let s as String: return quote(s, rendered: rendered)
-    case is NSNull: return "null"
-    case let n as NSNumber: return Node.isBool(n) ? (n.boolValue ? "true" : "false") : n.stringValue
-    default: return "\(v)"
+/// Writes into one buffer (O(size)); stops after ~`limit` UTF-8 bytes and says so (detail pane). Copy passes no limit.
+public func prettyJSON(_ v: Any, rendered: Bool, limit: Int = .max) -> String {
+    var o = ""
+    func w(_ v: Any, _ indent: String) {
+        let inner = indent + "  "
+        switch v {
+        case let d as [String: Any]:
+            if d.isEmpty { o += "{}"; return }
+            o += "{\n"
+            for (i, k) in Node.sortedKeys(d).enumerated() {
+                if o.utf8.count > limit { return }
+                o += (i > 0 ? ",\n" : "") + inner + quote(k, rendered: false) + " : "
+                w(d[k]!, inner)
+            }
+            o += "\n" + indent + "}"
+        case let a as [Any]:
+            if a.isEmpty { o += "[]"; return }
+            o += "[\n"
+            for (i, e) in a.enumerated() {
+                if o.utf8.count > limit { return }
+                o += (i > 0 ? ",\n" : "") + inner
+                w(e, inner)
+            }
+            o += "\n" + indent + "]"
+        case let s as String: o += quote(s, rendered: rendered)
+        case is NSNull: o += "null"
+        case let n as NSNumber: o += Node.isBool(n) ? (n.boolValue ? "true" : "false") : n.stringValue
+        default: o += "\(v)"
+        }
     }
+    w(v, "")
+    return o.utf8.count > limit ? o + "\n\n… truncated after \(ByteCountFormatter.string(fromByteCount: Int64(limit), countStyle: .file)). Copy gets the full text." : o
 }
 
 public func quote(_ s: String, rendered: Bool) -> String {
@@ -59,8 +77,8 @@ public func highlightedJSON(_ s: String, font: NSFont) -> NSAttributedString {
 
 public func jsonTypeName(_ v: Any) -> String {
     switch v {
-    case is [String: Any]: return "object"
-    case is [Any]: return "array"
+    case is NSDictionary: return "object"
+    case is NSArray: return "array"
     case is String: return "string"
     case is NSNull: return "null"
     case let n as NSNumber: return Node.isBool(n) ? "bool" : "number"

@@ -9,20 +9,24 @@ public final class Node {
 
     public init(name: String, value: Any, path: String) { self.name = name; self.value = value; self.path = path }
 
-    public var isContainer: Bool { value is [String: Any] || value is [Any] }
+    // Type checks use NSDictionary/NSArray: `is [String: Any]` checks every key (153k keys ≈ 0.1s, per row draw).
+    public var isContainer: Bool { value is NSDictionary || value is NSArray }
 
     // ponytail: JSONSerialization drops key order, so keys are sorted. Hand-written parser if original order matters.
     public var children: [Node] {
         if let c = _children { return c }
         let c: [Node]
         if let d = value as? [String: Any] {
-            c = d.keys.sorted().map { Node(name: $0, value: d[$0]!, path: path + Self.keyPath($0)) }
+            c = Self.sortedKeys(d).map { Node(name: $0, value: d[$0]!, path: path + Self.keyPath($0)) }
         } else if let a = value as? [Any] {
             c = a.enumerated().map { Node(name: "[\($0.offset)]", value: $0.element, path: path + "[\($0.offset)]") }
         } else { c = [] }
         _children = c
         return c
     }
+
+    // ponytail: UTF-8 byte order, not String `<` (Unicode-normalizing compare: 153k keys 1.2s → 0.3s). Same order for NFC keys.
+    public static func sortedKeys(_ d: [String: Any]) -> [String] { d.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) } }
 
     public static func keyPath(_ k: String) -> String {
         k.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) && !k.isEmpty ? ".\(k)" : "[\"\(k)\"]"
@@ -33,8 +37,8 @@ public final class Node {
     /// Short single-line rendering for the Value column.
     public static func summary(_ v: Any) -> (String, NSColor) {
         switch v {
-        case let d as [String: Any]: return ("{ \(d.count) keys }", .secondaryLabelColor)
-        case let a as [Any]:         return ("[ \(a.count) items ]", .secondaryLabelColor)
+        case let d as NSDictionary:  return ("{ \(d.count) keys }", .secondaryLabelColor)
+        case let a as NSArray:       return ("[ \(a.count) items ]", .secondaryLabelColor)
         case let s as String:        return ("\"" + s.prefix(500).replacingOccurrences(of: "\n", with: "⏎") + "\"", .systemGreen)
         case is NSNull:              return ("null", .systemGray)
         case let n as NSNumber:      return isBool(n) ? (n.boolValue ? "true" : "false", .systemPurple) : (n.stringValue, .systemBlue)
@@ -49,16 +53,18 @@ public final class Node {
         func add(_ s: String, _ c: NSColor) { out.append(NSAttributedString(string: s, attributes: [.foregroundColor: c, .paragraphStyle: para])) }
         func leaf(_ v: Any) {
             switch v {
-            case let d as [String: Any]: add("{…\(d.count)}", .secondaryLabelColor)
-            case let a as [Any]:         add("[…\(a.count)]", .secondaryLabelColor)
+            case let d as NSDictionary:  add("{…\(d.count)}", .secondaryLabelColor)
+            case let a as NSArray:       add("[…\(a.count)]", .secondaryLabelColor)
             case let s as String:        add("\"" + s.prefix(80).replacingOccurrences(of: "\n", with: "⏎") + (s.count > 80 ? "…\"" : "\""), .systemGreen)
             default:                     let (t, c) = summary(v); add(t, c)
             }
         }
         switch v {
+        case let d as NSDictionary where d.count > 1000:   // ponytail: don't sort a huge dict to show its first few keys
+            let (t, c) = summary(d); add(t, c)
         case let d as [String: Any]:
             add("{ ", .secondaryLabelColor)
-            for (i, k) in d.keys.sorted().enumerated() {
+            for (i, k) in sortedKeys(d).enumerated() {
                 if i > 0 { add(", ", .secondaryLabelColor) }
                 add(k + ": ", .labelColor); leaf(d[k]!)
                 if out.length > limit { add(", …", .secondaryLabelColor); break }
