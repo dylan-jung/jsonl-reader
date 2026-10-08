@@ -9,31 +9,35 @@ func draw(_ px: Int) -> NSBitmapImageRep {
     let s = CGFloat(px) / 1024
     func R(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> NSRect { NSRect(x: x * s, y: y * s, width: w * s, height: h * s) }
 
-    // macOS template: 824pt rounded square on a 1024 canvas, soft shadow
-    let box = R(100, 100, 824, 824)
-    let shadow = NSShadow(); shadow.shadowBlurRadius = 24 * s; shadow.shadowOffset = NSSize(width: 0, height: -10 * s)
-    shadow.shadowColor = NSColor.black.withAlphaComponent(0.25); shadow.set()
-    let bg = NSBezierPath(roundedRect: box, xRadius: 185 * s, yRadius: 185 * s)
-    NSGradient(starting: NSColor(white: 0.99, alpha: 1), ending: NSColor(white: 0.93, alpha: 1))!.draw(in: bg, angle: -90)
-    NSShadow().set()
+    func hex(_ v: UInt32, _ a: CGFloat = 1) -> NSColor { NSColor(srgbRed: CGFloat(v >> 16 & 255) / 255, green: CGFloat(v >> 8 & 255) / 255, blue: CGFloat(v & 255) / 255, alpha: a) }
 
-    // four JSON records, one per line:  {  key  :  value  }
-    let ink = NSColor(red: 0.16, green: 0.18, blue: 0.24, alpha: 1)
-    let keyGray = NSColor(red: 0.62, green: 0.65, blue: 0.70, alpha: 1)
-    let values: [(NSColor, CGFloat)] = [(.systemGreen, 190), (.systemBlue, 130), (.systemPurple, 160), (.systemOrange, 110)]
-    let font = NSFont.monospacedSystemFont(ofSize: 150 * s, weight: .bold)
-    let brace: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink]
-    let rowH: CGFloat = 150, top: CGFloat = 700, x0: CGFloat = 200, barH: CGFloat = 56
-    for (i, (color, w)) in values.enumerated() {
-        let cy = top - CGFloat(i) * rowH
-        var x = x0
-        let open = NSAttributedString(string: "{", attributes: brace)
-        open.draw(at: NSPoint(x: x * s, y: cy * s - open.size().height / 2)); x += 110
-        keyGray.setFill(); NSBezierPath(roundedRect: R(x, cy - barH / 2, 150, barH), xRadius: barH / 2 * s, yRadius: barH / 2 * s).fill(); x += 150 + 30
-        ink.setFill(); NSBezierPath(ovalIn: R(x, cy + 8, 22, 22)).fill(); NSBezierPath(ovalIn: R(x, cy - 30, 22, 22)).fill(); x += 22 + 30
-        color.setFill(); NSBezierPath(roundedRect: R(x, cy - barH / 2, w, barH), xRadius: barH / 2 * s, yRadius: barH / 2 * s).fill(); x += w + 20
-        let close = NSAttributedString(string: "}", attributes: brace)
-        close.draw(at: NSPoint(x: x * s, y: cy * s - close.size().height / 2))
+    // macOS template: 824pt rounded square on a 1024 canvas, soft shadow, dark slate gradient + top sheen
+    let shape = NSBezierPath(roundedRect: R(100, 100, 824, 824), xRadius: 185 * s, yRadius: 185 * s)
+    let shadow = NSShadow(); shadow.shadowBlurRadius = 20 * s; shadow.shadowOffset = NSSize(width: 0, height: -8 * s)
+    shadow.shadowColor = NSColor.black.withAlphaComponent(0.3); shadow.set()
+    hex(0x1E293B).setFill(); shape.fill()
+    NSShadow().set()
+    NSGradient(colors: [hex(0x334155), hex(0x1E293B), hex(0x0B1220)])!.draw(in: shape, angle: -60)
+    NSGraphicsContext.saveGraphicsState(); shape.addClip()
+    NSGradient(colors: [NSColor.white.withAlphaComponent(0.10), NSColor.white.withAlphaComponent(0)])!.draw(in: R(100, 512, 824, 412), angle: -90)
+    NSGraphicsContext.restoreGraphicsState()
+
+    // { ≡ }: rounded braces around three records in the tree's syntax colors
+    let glyphShadow = NSShadow(); glyphShadow.shadowBlurRadius = 12 * s; glyphShadow.shadowOffset = NSSize(width: 0, height: -6 * s)
+    glyphShadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
+    let bold = NSFont.systemFont(ofSize: 480 * s, weight: .bold)
+    let font = NSFont(descriptor: bold.fontDescriptor.withDesign(.rounded)!, size: 480 * s)!
+    let brace: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: hex(0xE2E8F0), .shadow: glyphShadow]
+    for (ch, cx) in [("{", 276.0), ("}", 748.0)] {
+        let a = NSAttributedString(string: ch, attributes: brace), size = a.size()
+        a.draw(at: NSPoint(x: cx * s - size.width / 2, y: 512 * s - size.height / 2 + 16 * s))
+    }
+    let barH: CGFloat = 54
+    for (i, (color, w)) in [(hex(0x4ADE80), 240.0), (hex(0x60A5FA), 290.0), (hex(0xC084FC), 190.0)].enumerated() {
+        let cy = 512 + 102 - CGFloat(i) * 102
+        NSGraphicsContext.saveGraphicsState(); glyphShadow.set(); color.setFill()
+        NSBezierPath(roundedRect: R(512 - w / 2, cy - barH / 2, w, barH), xRadius: barH / 2 * s, yRadius: barH / 2 * s).fill()
+        NSGraphicsContext.restoreGraphicsState()
     }
     NSGraphicsContext.restoreGraphicsState()
     return rep
